@@ -1,12 +1,174 @@
 ---
-title: "egonzalesfinalproj"
-jupyter: python3
+title: "Has reliance on commercial fisheries changed over time?"
+editor: visual
+author: "Elise Gonzales"
+date: "12/8/2022"
+format:
+  html:
+    code-fold: true
+    code-summary: "Show the code"
+code-overflow: wrap
+code-block-bg: true
+code-block-border-left: "#6B5A75"
 ---
 
-This is a Quarto website.
-
-To learn more about Quarto websites visit <https://quarto.org/docs/websites>.
-
-```{python}
-1 + 1
+```{r, warning=FALSE, message=FALSE, results='hide'}
+library(tidyverse)
+library(readr)
+library(here)
+library(janitor)
+library(dplyr)
+library(openintro)
+library(kableExtra)
+library(automap)
+library(patchwork)
+library(viridis)
+library(sf)
+library(nnet)
+library(tsibble)
+library(feasts)
+library(sjPlot)
 ```
+
+# **Has reliance on commercial fisheries in the Western U.S. changed over time?**
+
+```{r, warning=FALSE, message=FALSE, results='hide'}
+#read in /clean data
+sid <- read_csv(here::here("data", "socialIndicatorData.csv")) |> 
+  janitor::clean_names() |> 
+  mutate(commercial_reliance_num = as.numeric(commercial_reliance))
+
+#fix "N/A's"
+sid[is.na(sid) | sid=="N/A"] = NA
+```
+
+## **The Data**
+
+The NOAA Fisheries Community Social Vulnerability Indicators (CSVIs) Dataset was obtained through InPort, the data management program of the National Marine Fisheries Service (NMFS). It includes measures of Social Vulnerability, Gentrification Pressure, Sea Level Rise Risk, Storm Surge Risk, and Commercial Fishing Dependence for communities located in U.S. coastal counties (in California, Oregon, and Washington) from the year 2009 to 2019. Variables consist of both factor scores and categorical rankings. Factor scores were computed using factor analysis of multiple data sets from the U.S. Census Bureau, and the categorical rankings were derived from these factor scores.
+
+Metadata can be found at: https://www.fisheries.noaa.gov/inport/item/57263.
+
+To begin answering our question, we will take a look at the reliance on commercial fisheries. The factor score ranges from 0-4, with 0 representing communities having the least reliance to 4 being communities with the greatest reliance.
+
+**Spatial Spread of Data**
+
+```{r, warning=FALSE, message=FALSE, results='hide'}
+sid %>% 
+  ggplot(
+  mapping = aes(x = longitude, y = latitude, color)) +
+  geom_point(size = 1.5, color = "dark blue") + 
+  theme_classic()
+```
+
+**Checking on distribution of data**
+
+```{r, warning=FALSE, message=FALSE, results='hide'}
+com_rel_hist <- ggplot(data = sid, aes(x = commercial_reliance_num)) +
+  geom_histogram(bins = 50) +
+  labs(x = "Reliance on Commercial Fisheries",
+       y = "Count",
+       title = "Commercial Reliance Factor Score (2009-2019)") +
+  theme_light() +
+  theme(panel.grid = element_blank(),
+        plot.title = element_text(size = 9)) +
+  scale_x_continuous(breaks = seq(0,20,60),
+                     limits = c(0,20))
+
+com_rel_hist
+```
+
+The data has a right-skewed or "positively skewed" distribution.
+
+**Graphing the same data on a logarithmic scale.**
+
+```{r, warning=FALSE, message=FALSE, results='hide'}
+com_rel_log <- ggplot(data = sid, aes(x = log(commercial_reliance_num))) +
+  geom_histogram(bins = 50) +
+  labs(x = "Reliance on Commercial Fisheries",
+       y = "Count",
+       title = "Commercial Reliance Factor Score (2009-2019)") +
+  theme_light() +
+  theme(panel.grid = element_blank(),
+        plot.title = element_text(size = 9)) +
+  scale_x_continuous(breaks = seq(0,20,60),
+                     limits = c(0,5))
+
+com_rel_log
+```
+
+After plotting the log of the data, it appears to still have a non-normal distribution; perhaps still right-skewed.
+
+**Bar plots showing (L) count & (R) proportion of communities in each category of reliance on commercial fisheries (2009-2019)**
+
+```{r, warning=FALSE, message=FALSE, results='hide'}
+# Bar plot showing count of communities in each category of reliance on commercial fisheries (2009-2019). 
+p_count <- ggplot(sid, aes(x = commercial_reliance_categorical_ranking)) +
+  geom_bar(fill = IMSCOL["green", "full"]) + 
+  labs(x = "Commercial Reliance", y = "Count")
+
+# Bar plot showing proportion of loans in each homeownership category
+p_proportion <- sid %>%
+  count(commercial_reliance_categorical_ranking) %>%
+  mutate(proportion = n / sum(n)) %>%
+  ggplot(aes(x = commercial_reliance_categorical_ranking, y = proportion)) +
+  geom_col(fill = IMSCOL["green", "full"]) + 
+  labs(x = "Commercial Reliance", y = "Proportion")
+
+p_count + p_proportion
+```
+
+## **Analyses**
+
+**Simple Time Series**
+
+```{r, warning=FALSE, message=FALSE, results='hide'}
+ggplot(sid, aes(x=year, y=commercial_reliance_num)) +
+  geom_point() +
+  scale_x_discrete(limit = c(2009, 2010, 2011, 2012, 2013, 2014, 2015, 2016, 2017, 2018, 2019))
+```
+
+**Applying** **a Classical Decomposition to the Data**
+
+![](images/paste-C248BEC8.png)
+
+```{r, warning=FALSE, message=FALSE, results='hide'}
+freq <- ts(sid$commercial_reliance_num,start=(2009), end=(2019),frequency=10)
+decomp <- (decompose(freq, type = "additive"))
+plot(decomp)
+
+```
+
+The classical decomposition shows that there appears to be no trends (observed, seasonal, or random). There is a notable spike before 2018 on observed, trend, and random graphs. This could possibly be attributed to outliers in the data.
+
+**Simple Linear Regression**
+
+This will determine whether there is a relationship between time and reliance on commercial fisheries by testing the null hypothesis that there is no relationship. The alternative hypothesis is that there is a relationship between the two variables. Significance level: α \< 0.05
+
+```{r, warning=FALSE, message=FALSE}
+reg <- summary(lm(commercial_reliance_num ~ year, data = sid))
+tab_model(reg, show.r2 = FALSE)
+```
+
+Multiple R-squared: 2.142e-05, Adjusted R-squared: -5.819e-05
+
+Due to the output of this model, we cannot reject the null hypothesis. There is no significant relationship between time and the reliance on commercial fisheries in CA, WA, and OR between 2009 and 2019. More evidence would be required or other variables to get a better idea of a possible relationship.
+
+## **Discussion**
+
+Gaining more knowledge on climate stressors can help inform future research, as well as policies needed to aid in adaptation strategies. With communities' reliance on the fishing industry -- from dependence on marine proteins for fulfilling diet requirements to economic dependence from employment or as part of a coastal fishing community -- it is imperative to unpack the additive structure of vulnerability, hazards, and exposure in a community when looking to address risks to global climate change.
+
+**Future Research & Limitations of CSVI Data**
+
+In the future, I'd be interested in exploring measures of climate change impacts paired with this dataset to gain a better idea of the main drivers of impacts on communities. Gaining a finer resolution, on the scale of cities or counties would also be more helpful in providing data to inform policy on the city/county level. In regard to limitations of this dataset: Nonresponse bias is something to consider as values were computed using data from the U.S. Census Bureau. If continuing this project, I would look into the nonresponse bias analyses which are conducted annually, and I would hope include the data used to inform the CSVI dataset.
+
+It would have been useful to look at potential seasonality in the reliance on commercial fishing, and associated social vulnerability metrics. Because fish stocks are seasonal and catch on the Western U.S. varies across seasons, this would most likely have an effect on communities' reliance. Unfortunately, the CSVI dataset includes only year and no month/day information.
+
+## **References**
+
+Lisa L. Colburn, Michael Jepson, Changhua Weng, Tarsila Seara, Jeremy Weiss, Jonathan A. Hare, "Indicators of climate change and social vulnerability in fishing dependent communities along the Eastern and Gulf Coasts of the United States," Marine Policy, Volume 74, 2016, Pages 323-333, ISSN 0308-597X, https://doi.org/10.1016/j.marpol.2016.04.030.
+
+Grace-Martin, K. (n.d.). How To Calculate an Index Score from a Factor Analysis - The Analysis Factor. The Analysis Factor. Retrieved November 24, 2022, from <https://www.theanalysisfactor.com/index-score-factor-analysis/>
+
+Northwest Fisheries Science Center, 2022: Community social vulnerability indices - Community Social Vulnerability Indicators for the California Current, https://www.fisheries.noaa.gov/inport/item/30837.
+
+\
